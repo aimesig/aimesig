@@ -5,3 +5,4 @@ dist/
 .next/
 .expo/
 *.log
+services/auth-service/firebase-service-account.json
