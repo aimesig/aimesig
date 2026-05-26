@@ -32,13 +32,4 @@ class AuthService {
       },
     );
   }
-
-  Future<Response> refreshToken(String refreshToken) async {
-    return await dio.post(
-      '/auth/refresh',
-      data: {
-        'refreshToken': refreshToken,
-      },
-    );
-  }
 }

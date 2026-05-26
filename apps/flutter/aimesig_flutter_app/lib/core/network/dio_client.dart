@@ -3,7 +3,7 @@ import 'package:dio/dio.dart';
 class DioClient {
   static final Dio dio = Dio(
     BaseOptions(
-      baseUrl: 'http://localhost:3000/api',
+      baseUrl: 'https://auth.aimesig.com',
       connectTimeout: const Duration(seconds: 30),
       receiveTimeout: const Duration(seconds: 30),
       headers: {

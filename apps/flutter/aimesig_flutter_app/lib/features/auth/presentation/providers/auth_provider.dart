@@ -8,16 +8,18 @@ final authServiceProvider = Provider<AuthService>((ref) {
 });
 
 final authControllerProvider =
-    StateNotifierProvider<AuthController, bool>((ref) {
-  return AuthController(
-    ref.read(authServiceProvider),
-  );
-});
+    NotifierProvider<AuthController, bool>(
+  AuthController.new,
+);
 
-class AuthController extends StateNotifier<bool> {
-  final AuthService authService;
+class AuthController extends Notifier<bool> {
+  late final AuthService authService;
 
-  AuthController(this.authService) : super(false);
+  @override
+  bool build() {
+    authService = ref.read(authServiceProvider);
+    return false;
+  }
 
   Future<bool> login({
     required String email,
@@ -44,6 +46,9 @@ class AuthController extends StateNotifier<bool> {
       return true;
     } catch (e) {
       state = false;
+
+      print(e);
+
       return false;
     }
   }
