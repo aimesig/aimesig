@@ -1,0 +1,46 @@
+// prisma/schema.prisma
+// Uses Prisma's WASM engine via @prisma/adapter-neon
+// No binary download needed — works behind any firewall
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id          String   @id @default(cuid())
+  phone       String   @unique
+  username    String   @unique
+  email       String   @unique
+  firebaseUid String   @unique @map("firebase_uid")
+  displayName String?  @map("display_name")
+  avatar      String?
+  isVerified  Boolean  @default(false) @map("is_verified")
+  role        Role     @default(USER)
+  tenantId    String?  @map("tenant_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("users")
+}
+
+model Otp {
+  id        String   @id @default(cuid())
+  phone     String
+  code      String
+  attempts  Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([phone])
+  @@map("otps")
+}
+
+enum Role {
+  USER
+  ADMIN
+}

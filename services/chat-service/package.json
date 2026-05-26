@@ -1,0 +1,23 @@
+{
+  "name": "@aimesig/chat-service",
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "ts-node-dev --respawn src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "express": "^4.19.0",
+    "mongoose": "^8.4.0",
+    "jsonwebtoken": "^9.0.0",
+    "dotenv": "^16.4.0",
+    "@aimesig/types": "*",
+    "@aimesig/db": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "ts-node-dev": "^2.0.0",
+    "@types/express": "^4.17.0",
+    "@types/node": "^20.0.0"
+  }
+}

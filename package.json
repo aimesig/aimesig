@@ -1,0 +1,25 @@
+{
+  "name": "aimesig",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "services/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev --concurrency=20 --filter=!@aimesig/desktop",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "test": "turbo run test"
+  },
+  "devDependencies": {
+    "turbo": "^1.13.0",
+    "typescript": "^5.4.0"
+  },
+  "overrides": {
+    "react-native-screens": "~3.31.1"
+  },
+  "dependencies": {
+    "firebase": "^12.13.0"
+  }
+}

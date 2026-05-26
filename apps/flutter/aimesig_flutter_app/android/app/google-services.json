@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "229626550217",
+    "project_id": "aimesig",
+    "storage_bucket": "aimesig.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:229626550217:android:42fa211bc0c1a906bafa18",
+        "android_client_info": {
+          "package_name": "com.example.aimesig_flutter_app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "229626550217-f5rec9bd0rps8knvqe8q2kc8nlkkasbo.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCw3h7nJDTVxrIx2Pz78slzztvmAlp3w2o"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "229626550217-f5rec9bd0rps8knvqe8q2kc8nlkkasbo.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>aimesig · auth test</title>
+
+<!-- Firebase client SDK -->
+<script type="module">
+  import { initializeApp }                        from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+  import { getAuth, RecaptchaVerifier,
+           signInWithPhoneNumber }                from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+
+  // ─── FILL THESE IN ────────────────────────────────────────────────────────
+  // Firebase console → Project settings → Your apps → Web app → SDK setup
+  const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyA8P_eASlAYbsqqR43hJt5cUf8IjeuK_j8",
+  authDomain: "aimesig.firebaseapp.com",
+  projectId: "aimesig",
+  storageBucket: "aimesig.firebasestorage.app",
+  messagingSenderId: "229626550217",
+  appId: "1:229626550217:web:30d05a774b7f0427bafa18",
+  measurementId: "G-QKWLF7N02R"
+ };
+
+  const AUTH_SERVICE = "http://localhost:4001";
+  // ──────────────────────────────────────────────────────────────────────────
+
+  const app  = initializeApp(FIREBASE_CONFIG);
+  const auth = getAuth(app);
+  auth.languageCode = 'en';
+
+  let confirmationResult = null;
+
+  // ── Recaptcha ──────────────────────────────────────────────────────────────
+  function setupRecaptcha() {
+    if (window._recaptchaVerifier) return;
+    window._recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
+      size: 'invisible',
+      callback: () => {},
+    });
+  }
+
+  // ── Step 1: Send OTP ───────────────────────────────────────────────────────
+ window.sendOtp = async function () {
+  const phone = document.getElementById('phone').value.trim();
+  if (!phone) return setStatus('Enter a phone number', 'error');
+
+  setStatus('Sending OTP…', 'info');
+
+  try {
+    if (!window._recaptchaVerifier) {
+      window._recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
+        size: 'invisible',
+        callback: () => {},
+      });
+      await window._recaptchaVerifier.render();
+    }
+
+    confirmationResult = await signInWithPhoneNumber(auth, phone, window._recaptchaVerifier);
+    setStatus('OTP sent! Check your SMS.', 'success');
+    show('step2');
+    log('Firebase sent OTP to ' + phone);
+  } catch (err) {
+    setStatus('Send failed: ' + err.message, 'error');
+    log('ERROR sendOtp: ' + err.message);
+
+    // Reset so next attempt gets a fresh verifier
+    if (window._recaptchaVerifier) {
+      window._recaptchaVerifier.clear();
+      window._recaptchaVerifier = null;
+    }
+  }
+};
+
+  // ── Step 2: Verify OTP → get Firebase idToken ──────────────────────────────
+  window.verifyOtp = async function () {
+    const code = document.getElementById('otp').value.trim();
+    if (!code || !confirmationResult) return setStatus('Enter the OTP code', 'error');
+
+    setStatus('Verifying OTP…', 'info');
+    try {
+      const credential = await confirmationResult.confirm(code);
+      const idToken    = await credential.user.getIdToken();
+      log('✓ Firebase idToken received:\n' + idToken.slice(0, 80) + '…');
+      setStatus('OTP verified! Sending to auth-service…', 'info');
+
+      // Store for step 3
+      window._idToken = idToken;
+      show('step3');
+    } catch (err) {
+      setStatus('OTP wrong or expired: ' + err.message, 'error');
+      log('ERROR verifyOtp: ' + err.message);
+    }
+  };
+
+  // ── Step 3: POST to auth-service /auth/login ───────────────────────────────
+  window.login = async function () {
+    const username = document.getElementById('username').value.trim();
+    const idToken  = window._idToken;
+    if (!idToken) return setStatus('No idToken — complete steps 1 & 2 first', 'error');
+
+    setStatus('Logging in…', 'info');
+    try {
+      const body = { idToken };
+      if (username) body.username = username;  // required for new users only
+
+      const res  = await fetch(`${AUTH_SERVICE}/auth/login`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(body),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        // newUser flag means this is a fresh account — show username field
+        if (data.newUser) {
+          setStatus('New user — enter a username and click Login again', 'info');
+          show('username-row');
+          log('New user detected — username required');
+          return;
+        }
+        throw new Error(data.error ?? res.statusText);
+      }
+
+      log('✓ Login success!\n' + JSON.stringify(data, null, 2));
+      setStatus('Logged in! Tokens received.', 'success');
+      show('step4');
+
+      // Store tokens for /auth/me test
+      window._accessToken  = data.accessToken;
+      window._refreshToken = data.refreshToken;
+
+    } catch (err) {
+      setStatus('Login failed: ' + err.message, 'error');
+      log('ERROR login: ' + err.message);
+    }
+  };
+
+  // ── Step 4: GET /auth/me ───────────────────────────────────────────────────
+  window.getMe = async function () {
+    if (!window._accessToken) return setStatus('No access token', 'error');
+
+    setStatus('Fetching profile…', 'info');
+    try {
+      const res  = await fetch(`${AUTH_SERVICE}/auth/me`, {
+        headers: { 'Authorization': `Bearer ${window._accessToken}` },
+      });
+      const data = await res.json();
+      log('✓ /auth/me response:\n' + JSON.stringify(data, null, 2));
+      setStatus('Profile fetched!', 'success');
+    } catch (err) {
+      setStatus('Error: ' + err.message, 'error');
+    }
+  };
+
+  // ── Step 4: POST /auth/refresh ─────────────────────────────────────────────
+  window.refresh = async function () {
+    if (!window._refreshToken) return setStatus('No refresh token', 'error');
+
+    setStatus('Refreshing token…', 'info');
+    try {
+      const res  = await fetch(`${AUTH_SERVICE}/auth/refresh`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ refreshToken: window._refreshToken }),
+      });
+      const data = await res.json();
+      log('✓ /auth/refresh response:\n' + JSON.stringify(data, null, 2));
+      window._accessToken = data.accessToken;
+      setStatus('Token refreshed!', 'success');
+    } catch (err) {
+      setStatus('Error: ' + err.message, 'error');
+    }
+  };
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  function show(id) {
+    document.getElementById(id)?.classList.remove('hidden');
+  }
+
+  function setStatus(msg, type) {
+    const el = document.getElementById('status');
+    el.textContent = msg;
+    el.className = 'status ' + type;
+  }
+
+  function log(msg) {
+    const el  = document.getElementById('log');
+    const ts  = new Date().toLocaleTimeString();
+    el.textContent += `[${ts}] ${msg}\n\n`;
+    el.scrollTop = el.scrollHeight;
+  }
+</script>
+
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;600&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:       #0d0d0f;
+    --surface:  #131316;
+    --border:   #232329;
+    --accent:   #4ade80;
+    --accent2:  #22d3ee;
+    --text:     #e8e8ec;
+    --muted:    #6b6b78;
+    --error:    #f87171;
+    --warn:     #fbbf24;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-weight: 300;
+    min-height: 100vh;
+    display: grid;
+    grid-template-columns: 420px 1fr;
+    grid-template-rows: auto 1fr;
+  }
+
+  /* ── Header ── */
+  header {
+    grid-column: 1 / -1;
+    padding: 24px 32px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .logo {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    letter-spacing: 0.12em;
+    color: var(--accent);
+    text-transform: uppercase;
+  }
+
+  .logo span { color: var(--muted); }
+
+  .badge {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    padding: 3px 8px;
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+  }
+
+  /* ── Left panel ── */
+  .panel {
+    padding: 32px;
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+    overflow-y: auto;
+  }
+
+  .step {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .step-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .step-num {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: var(--accent);
+    background: rgba(74, 222, 128, 0.08);
+    border: 1px solid rgba(74, 222, 128, 0.2);
+    border-radius: 2px;
+    padding: 2px 7px;
+    letter-spacing: 0.06em;
+  }
+
+  .step-title {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: var(--text);
+    text-transform: uppercase;
+  }
+
+  .divider {
+    height: 1px;
+    background: var(--border);
+  }
+
+  label {
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    display: block;
+    margin-bottom: 6px;
+  }
+
+  input {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    padding: 10px 12px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+
+  input:focus { border-color: var(--accent); }
+  input::placeholder { color: var(--muted); }
+
+  button {
+    width: 100%;
+    background: transparent;
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    color: var(--accent);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    padding: 10px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    text-transform: uppercase;
+  }
+
+  button:hover {
+    background: var(--accent);
+    color: #0d0d0f;
+  }
+
+  button.secondary {
+    border-color: var(--accent2);
+    color: var(--accent2);
+  }
+  button.secondary:hover {
+    background: var(--accent2);
+    color: #0d0d0f;
+  }
+
+  .btn-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .hidden { display: none !important; }
+
+  /* ── Status ── */
+  .status {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    padding: 10px 12px;
+    border-radius: 4px;
+    border-left: 3px solid transparent;
+  }
+  .status.info    { border-color: var(--accent2); background: rgba(34,211,238,0.06); color: var(--accent2); }
+  .status.success { border-color: var(--accent);  background: rgba(74,222,128,0.06); color: var(--accent); }
+  .status.error   { border-color: var(--error);   background: rgba(248,113,113,0.06); color: var(--error); }
+
+  /* ── Right panel: log ── */
+  .log-panel {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .log-header {
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .log-title {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .log-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.3; }
+  }
+
+  #log {
+    flex: 1;
+    padding: 20px 24px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    line-height: 1.7;
+    color: var(--muted);
+    white-space: pre-wrap;
+    word-break: break-all;
+    overflow-y: auto;
+  }
+
+  #log:empty::before {
+    content: '// output will appear here…';
+    color: #3a3a42;
+  }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">aimesig<span>/</span>auth</div>
+  <div class="badge">test harness</div>
+  <div id="status" class="status info" style="margin-left:auto; width:auto; padding: 4px 12px;">
+    Ready — fill in FIREBASE_CONFIG at top of script
+  </div>
+</header>
+
+<!-- Left: steps -->
+<div class="panel">
+
+  <!-- Step 1 -->
+  <div class="step">
+    <div class="step-header">
+      <span class="step-num">01</span>
+      <span class="step-title">Send OTP</span>
+    </div>
+    <div>
+      <label>Phone number (E.164 format)</label>
+      <input id="phone" type="tel" placeholder="+91XXXXXXXXXX" value="+91">
+    </div>
+    <button onclick="sendOtp()">Send OTP via Firebase →</button>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- Step 2 -->
+  <div class="step" id="step2">
+    <div class="step-header">
+      <span class="step-num">02</span>
+      <span class="step-title">Verify OTP</span>
+    </div>
+    <div>
+      <label>6-digit code from SMS</label>
+      <input id="otp" type="text" placeholder="123456" maxlength="6">
+    </div>
+    <button onclick="verifyOtp()">Verify → Get idToken</button>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- Step 3 -->
+  <div class="step" id="step3">
+    <div class="step-header">
+      <span class="step-num">03</span>
+      <span class="step-title">Login to auth-service</span>
+    </div>
+    <div id="username-row" class="hidden">
+      <label>Username (new users only)</label>
+      <input id="username" type="text" placeholder="e.g. john_doe">
+    </div>
+    <button onclick="login()">POST /auth/login →</button>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- Step 4 -->
+  <div class="step" id="step4">
+    <div class="step-header">
+      <span class="step-num">04</span>
+      <span class="step-title">Test protected routes</span>
+    </div>
+    <div class="btn-row">
+      <button onclick="getMe()">GET /auth/me</button>
+      <button class="secondary" onclick="refresh()">POST /auth/refresh</button>
+    </div>
+  </div>
+
+</div>
+
+<!-- Right: log output -->
+<div class="log-panel">
+  <div class="log-header">
+    <span class="log-title">response log</span>
+    <div class="log-dot"></div>
+  </div>
+  <pre id="log"></pre>
+</div>
+
+<!-- Invisible recaptcha anchor -->
+<div id="recaptcha-container"></div>
+
+</body>
+</html>
