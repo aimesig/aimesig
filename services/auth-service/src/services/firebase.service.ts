@@ -19,3 +19,11 @@ export function initFirebase() {
 
   return firebaseApp;
 }
+
+export async function verifyFirebaseToken(token: string) {
+  if (!firebaseApp) {
+    initFirebase();
+  }
+
+  return await admin.auth().verifyIdToken(token);
+}
