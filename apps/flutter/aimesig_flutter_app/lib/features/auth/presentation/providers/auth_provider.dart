@@ -1,55 +1,118 @@
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../../core/storage/secure_storage.dart';
-import '../../data/services/auth_service.dart';
+import '../../data/services/firebase_auth_service.dart';
 
-final authServiceProvider = Provider<AuthService>((ref) {
-  return AuthService();
-});
-
-final authControllerProvider =
-    NotifierProvider<AuthController, bool>(
-  AuthController.new,
+final firebaseAuthServiceProvider = Provider<FirebaseAuthService>(
+  (_) => FirebaseAuthService(),
 );
 
-class AuthController extends Notifier<bool> {
-  late final AuthService authService;
+final authStateProvider = StreamProvider<User?>((ref) {
+  return ref.watch(firebaseAuthServiceProvider).authStateChanges;
+});
+
+enum AuthStatus { idle, loading, otpSent, success, error }
+
+class AuthState {
+  final AuthStatus status;
+  final String? errorMessage;
+  final String? verificationId;
+  final String? phoneNumber;
+
+  const AuthState({
+    this.status = AuthStatus.idle,
+    this.errorMessage,
+    this.verificationId,
+    this.phoneNumber,
+  });
+
+  AuthState copyWith({
+    AuthStatus? status,
+    String? errorMessage,
+    String? verificationId,
+    String? phoneNumber,
+  }) {
+    return AuthState(
+      status: status ?? this.status,
+      errorMessage: errorMessage,
+      verificationId: verificationId ?? this.verificationId,
+      phoneNumber: phoneNumber ?? this.phoneNumber,
+    );
+  }
+}
+
+final authControllerProvider =
+    NotifierProvider<AuthController, AuthState>(AuthController.new);
+
+class AuthController extends Notifier<AuthState> {
+  late final FirebaseAuthService _service;
 
   @override
-  bool build() {
-    authService = ref.read(authServiceProvider);
-    return false;
+  AuthState build() {
+    _service = ref.read(firebaseAuthServiceProvider);
+    return const AuthState();
   }
 
-  Future<bool> login({
-    required String email,
-    required String password,
-  }) async {
+  Future<void> sendOtp(String phoneNumber) async {
+    state = state.copyWith(status: AuthStatus.loading, phoneNumber: phoneNumber);
+    await _service.sendOtp(
+      phoneNumber: phoneNumber,
+      onCodeSent: (verificationId) {
+        state = state.copyWith(
+          status: AuthStatus.otpSent,
+          verificationId: verificationId,
+        );
+      },
+      onError: (error) {
+        state = state.copyWith(
+          status: AuthStatus.error,
+          errorMessage: error,
+        );
+      },
+    );
+  }
+
+  Future<void> resendOtp() async {
+    if (state.phoneNumber != null) await sendOtp(state.phoneNumber!);
+  }
+
+  Future<bool> verifyOtp(String smsCode) async {
+    if (state.verificationId == null) return false;
+    state = state.copyWith(status: AuthStatus.loading);
     try {
-      state = true;
-
-      final response = await authService.login(
-        email: email,
-        password: password,
+      await _service.verifyOtp(
+        verificationId: state.verificationId!,
+        smsCode: smsCode,
       );
-
-      await SecureStorage.saveAccessToken(
-        response.data['accessToken'],
-      );
-
-      await SecureStorage.saveRefreshToken(
-        response.data['refreshToken'],
-      );
-
-      state = false;
-
+      state = state.copyWith(status: AuthStatus.success);
       return true;
-    } catch (e) {
-      state = false;
-
-      print(e);
-
+    } on FirebaseAuthException catch (e) {
+      state = state.copyWith(
+        status: AuthStatus.error,
+        errorMessage: _friendlyError(e),
+      );
       return false;
+    }
+  }
+
+  Future<void> signOut() async {
+    await _service.signOut();
+    state = const AuthState();
+  }
+
+  void resetError() => state = state.copyWith(status: AuthStatus.idle);
+
+  String _friendlyError(FirebaseAuthException e) {
+    switch (e.code) {
+      case 'invalid-verification-code':
+        return 'Invalid OTP. Please try again.';
+      case 'session-expired':
+        return 'OTP expired. Please request a new one.';
+      case 'too-many-requests':
+        return 'Too many attempts. Please try again later.';
+      default:
+        return e.message ?? 'Something went wrong.';
     }
   }
 }

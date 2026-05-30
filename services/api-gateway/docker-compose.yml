@@ -1,0 +1,69 @@
+version: '3.9'
+
+services:
+  # ── API Gateway ──────────────────────────────────────────────────────────────
+  api-gateway:
+    build: .
+    container_name: aimesig-api-gateway
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      JWT_SECRET: ${JWT_SECRET}
+      AUTH_SERVICE_URL:     http://auth-service:4001
+      CHAT_SERVICE_URL:     http://chat-service:4002
+      ERP_SERVICE_URL:      http://erp-service:4003
+      HRMS_SERVICE_URL:     http://hrms-service:4004
+      WEBSITES_SERVICE_URL: http://websites-service:4005
+      ALLOWED_ORIGINS: https://app.aimesig.com,https://aimesig.com
+      RATE_LIMIT_MAX: 200
+      AUTH_RATE_LIMIT_MAX: 20
+    depends_on:
+      - auth-service
+      - chat-service
+      - erp-service
+      - hrms-service
+      - websites-service
+    networks: [aimesig]
+
+  # ── Upstream stubs (replace with real service images) ────────────────────────
+  auth-service:
+    image: node:20-alpine
+    command: sh -c "npx --yes serve -s . -l 4001"
+    container_name: aimesig-auth
+    expose: ["4001"]
+    networks: [aimesig]
+
+  chat-service:
+    image: node:20-alpine
+    command: sh -c "npx --yes serve -s . -l 4002"
+    container_name: aimesig-chat
+    expose: ["4002"]
+    networks: [aimesig]
+
+  erp-service:
+    image: node:20-alpine
+    command: sh -c "npx --yes serve -s . -l 4003"
+    container_name: aimesig-erp
+    expose: ["4003"]
+    networks: [aimesig]
+
+  hrms-service:
+    image: node:20-alpine
+    command: sh -c "npx --yes serve -s . -l 4004"
+    container_name: aimesig-hrms
+    expose: ["4004"]
+    networks: [aimesig]
+
+  websites-service:
+    image: node:20-alpine
+    command: sh -c "npx --yes serve -s . -l 4005"
+    container_name: aimesig-websites
+    expose: ["4005"]
+    networks: [aimesig]
+
+networks:
+  aimesig:
+    driver: bridge
