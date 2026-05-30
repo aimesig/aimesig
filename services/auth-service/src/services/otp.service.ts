@@ -1,51 +1,81 @@
 // src/services/otp.service.ts
-import axios from 'axios';
+//
+// OTP lifecycle: generate → persist in Neon → deliver via WhatsApp.
+// Verification: lookup + TTL + attempt-rate check + consume on success.
+
 import { sql } from '../db';
+import { sendWhatsAppOtp } from './whatsapp.service';
 
-const OTP_TTL_SECONDS = 300;
+const OTP_TTL_SECONDS = 300;   // 5 minutes (matches template footer)
+const MAX_ATTEMPTS    = 5;
 
-function generateOtp() {
+function generateOtp(): string {
   return Math.floor(100_000 + Math.random() * 900_000).toString();
 }
 
-async function sendViaMSG91(phone: string, code: string) {
-  const { MSG91_AUTH_KEY, MSG91_TEMPLATE_ID } = process.env;
-  if (!MSG91_AUTH_KEY || !MSG91_TEMPLATE_ID) {
-    console.log(`[OTP] Phone: ${phone}  Code: ${code}`);
-    return;
-  }
-  await axios.post('https://control.msg91.com/api/v5/otp',
-    { template_id: MSG91_TEMPLATE_ID, mobile: phone.replace('+', ''), otp: code },
-    { headers: { authkey: MSG91_AUTH_KEY } }
-  );
-}
-
+// ─────────────────────────────────────────────────────────────────────────────
+// sendOtp
+// Clears any existing OTP for this phone, generates a fresh 6-digit code,
+// persists it, then delivers it via WhatsApp.
+// ─────────────────────────────────────────────────────────────────────────────
 export async function sendOtp(phone: string): Promise<void> {
+  // Remove any previous OTP for this number (one active OTP at a time)
   await sql`DELETE FROM otps WHERE phone = ${phone}`;
+
   const code = generateOtp();
-  await sql`INSERT INTO otps (id, phone, code) VALUES (gen_random_uuid()::text, ${phone}, ${code})`;
-  await sendViaMSG91(phone, code);
+
+  await sql`
+    INSERT INTO otps (id, phone, code, attempts, created_at)
+    VALUES (gen_random_uuid()::text, ${phone}, ${code}, 0, now())
+  `;
+
+  // In dev, if Meta creds are missing the service logs the code to console
+  // so you can still test without a live WhatsApp number.
+  await sendWhatsAppOtp(phone, code);
 }
 
-export async function verifyOtp(phone: string, code: string) {
+// ─────────────────────────────────────────────────────────────────────────────
+// verifyOtp
+// Returns { valid: true } on success (and deletes the record).
+// Returns { valid: false, reason } on any failure.
+// ─────────────────────────────────────────────────────────────────────────────
+export async function verifyOtp(
+  phone: string,
+  code: string,
+): Promise<{ valid: boolean; reason?: string }> {
   const rows = await sql`
-    SELECT * FROM otps WHERE phone = ${phone}
-    ORDER BY created_at DESC LIMIT 1`;
+    SELECT * FROM otps
+    WHERE phone = ${phone}
+    ORDER BY created_at DESC
+    LIMIT 1
+  `;
   const record = rows[0];
-  const ttl = new Date(Date.now() - OTP_TTL_SECONDS * 1000);
 
-  if (!record || record.created_at < ttl) {
-    if (record) await sql`DELETE FROM otps WHERE id = ${record.id}`;
-    return { valid: false, reason: 'OTP expired or not found' };
+  if (!record) {
+    return { valid: false, reason: 'No OTP found. Please request a new one.' };
   }
-  if (record.attempts >= 5) {
+
+  // TTL check
+  const expiry = new Date(record.created_at).getTime() + OTP_TTL_SECONDS * 1000;
+  if (Date.now() > expiry) {
     await sql`DELETE FROM otps WHERE id = ${record.id}`;
-    return { valid: false, reason: 'Too many attempts. Request a new OTP.' };
+    return { valid: false, reason: 'OTP has expired. Please request a new one.' };
   }
-  if (record.code !== code) {
+
+  // Attempt-rate check
+  if (record.attempts >= MAX_ATTEMPTS) {
+    await sql`DELETE FROM otps WHERE id = ${record.id}`;
+    return { valid: false, reason: 'Too many incorrect attempts. Please request a new OTP.' };
+  }
+
+  // Code check
+  if (record.code !== code.trim()) {
     await sql`UPDATE otps SET attempts = attempts + 1 WHERE id = ${record.id}`;
-    return { valid: false, reason: 'Invalid OTP' };
+    const left = MAX_ATTEMPTS - (record.attempts + 1);
+    return { valid: false, reason: `Invalid OTP. ${left} attempt${left === 1 ? '' : 's'} remaining.` };
   }
+
+  // ✓ Valid — consume
   await sql`DELETE FROM otps WHERE id = ${record.id}`;
   return { valid: true };
 }
