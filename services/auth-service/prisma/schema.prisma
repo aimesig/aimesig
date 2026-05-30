@@ -1,4 +1,3 @@
-// prisma/schema.prisma
 // Uses Prisma's WASM engine via @prisma/adapter-neon
 // No binary download needed — works behind any firewall
 
@@ -13,18 +12,20 @@ datasource db {
 }
 
 model User {
-  id          String   @id @default(cuid())
-  phone       String   @unique
-  username    String   @unique
-  email       String   @unique
-  firebaseUid String   @unique @map("firebase_uid")
-  displayName String?  @map("display_name")
-  avatar      String?
-  isVerified  Boolean  @default(false) @map("is_verified")
-  role        Role     @default(USER)
-  tenantId    String?  @map("tenant_id")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id             String    @id @default(cuid())
+  phone          String?   @unique
+  username       String    @unique
+  email          String    @unique
+  passwordHash   String?   @map("password_hash")
+  firebaseUid    String?   @unique @map("firebase_uid")
+  displayName    String?   @map("display_name")
+  avatar         String?
+  isVerified     Boolean   @default(false) @map("is_verified")
+  authProvider   AuthProvider @default(EMAIL) @map("auth_provider")
+  role           Role      @default(USER)
+  tenantId       String?   @map("tenant_id")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
 
   @@map("users")
 }
@@ -43,4 +44,10 @@ model Otp {
 enum Role {
   USER
   ADMIN
+}
+
+enum AuthProvider {
+  EMAIL
+  PHONE
+  GOOGLE
 }
