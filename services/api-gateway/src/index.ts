@@ -1,5 +1,5 @@
-import express from 'express';
-import cors from 'cors';
+import express, { Request, Response } from 'express';
+import cors, { CorsOptions } from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 
@@ -17,9 +17,8 @@ import websitesRoutes from './routes/websites';
 
 const app = express();
 
-app.use(helmet());
-app.use(cors({
-  origin: (origin, cb) => {
+const corsOptions: CorsOptions = {
+  origin: (origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) => {
     if (!origin || config.cors.origins.includes(origin)) return cb(null, true);
     cb(new Error(`CORS blocked: ${origin}`));
   },
@@ -27,7 +26,10 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID'],
   exposedHeaders: ['X-Request-ID'],
-}));
+};
+
+app.use(helmet());
+app.use(cors(corsOptions));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(requestId);
@@ -40,7 +42,7 @@ app.use(rateLimit({
   message: { error: 'Too many requests, please try again later.' },
 }));
 
-app.get('/health', async (_req, res) => {
+app.get('/health', async (_req: Request, res: Response) => {
   try {
     await sql`SELECT 1`;
     res.json({ status: 'ok', service: 'api-gateway', db: 'neon:connected', ts: new Date().toISOString() });
@@ -61,10 +63,7 @@ app.use(errorHandler);
 async function bootstrap() {
   await checkDbConnection();
   const server = app.listen(config.port, () => {
-    logger.info(`api.aimesig.com gateway :${config.port}`, {
-      env: config.nodeEnv,
-      upstreams: config.upstreams,
-    });
+    logger.info(`api.aimesig.com gateway :${config.port}`, { env: config.nodeEnv });
   });
 
   const shutdown = (signal: string) => {
@@ -76,7 +75,7 @@ async function bootstrap() {
   process.on('SIGINT',  () => shutdown('SIGINT'));
 }
 
-bootstrap().catch((err) => {
+bootstrap().catch((err: Error) => {
   logger.error('Failed to start', { error: err.message });
   process.exit(1);
 });

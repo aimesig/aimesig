@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-import { sql } from '../../utils/db';
-import { logger } from '../../utils/logger';
+import { sql } from '../utils/db';
+import { logger } from '../utils/logger';
 
 export interface TenantUser {
   id: string;
@@ -20,14 +20,16 @@ declare global {
 }
 
 /**
- * Resolves the tenant context from the already-verified JWT (req.user).
- * Looks up the tenant_user row to confirm account is still active.
- * Attaches req.tenantUser and req.tenantId.
+ * Resolves tenant context from the already-verified JWT (req.user).
+ * Confirms the account and tenant are both active, then attaches
+ * req.tenantUser and req.tenantId for use by downstream controllers.
+ *
+ * Must be called AFTER authenticate().
  */
 export async function resolveTenant(
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ): Promise<void> {
   if (!req.user) {
     res.status(401).json({ error: 'Not authenticated' });
@@ -38,7 +40,7 @@ export async function resolveTenant(
       SELECT tu.id, tu.tenant_id, tu.email, tu.name, tu.role
       FROM   tenant_users tu
       JOIN   tenants t ON t.id = tu.tenant_id
-      WHERE  tu.id = ${req.user.sub}
+      WHERE  tu.id        = ${req.user.sub}
         AND  tu.is_active = TRUE
         AND  t.is_active  = TRUE
     `;
@@ -56,8 +58,7 @@ export async function resolveTenant(
 }
 
 /**
- * Require one of the listed ERP roles.
- * Call after resolveTenant().
+ * Role-based ERP guard. Must be called after resolveTenant().
  */
 export function requireErpRole(...roles: string[]) {
   return (req: Request, res: Response, next: NextFunction): void => {
@@ -66,7 +67,9 @@ export function requireErpRole(...roles: string[]) {
       return;
     }
     if (!roles.includes(req.tenantUser.role)) {
-      res.status(403).json({ error: `Role '${req.tenantUser.role}' cannot access this resource` });
+      res
+        .status(403)
+        .json({ error: `Role '${req.tenantUser.role}' cannot access this resource` });
       return;
     }
     next();

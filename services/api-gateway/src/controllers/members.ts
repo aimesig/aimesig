@@ -1,40 +1,50 @@
 import { Router, Request, Response } from 'express';
-import { sql } from '../../utils/db';
-import { logger } from '../../utils/logger';
+import { sql } from '../utils/db';
+import { logger } from '../utils/logger';
 
 const router = Router();
 
 // GET /erp/members
 router.get('/', async (req: Request, res: Response): Promise<void> => {
-  const tid = req.tenantId!;
   const { status, search, page = '1', limit = '20' } = req.query as Record<string, string>;
   const offset = (parseInt(page) - 1) * parseInt(limit);
   try {
     const rows = await sql`
       SELECT id, member_no, name, email, phone, status, joined_on, photo_url
       FROM   members
-      WHERE  tenant_id = ${tid}
+      WHERE  tenant_id = ${req.tenantId!}
         AND  (${status || null}::text IS NULL OR status = ${status || null})
-        AND  (${search || null}::text IS NULL OR name ILIKE ${'%' + (search || '') + '%'} OR email ILIKE ${'%' + (search || '') + '%'} OR phone ILIKE ${'%' + (search || '') + '%'})
+        AND  (${search || null}::text IS NULL
+              OR name  ILIKE ${'%' + (search || '') + '%'}
+              OR email ILIKE ${'%' + (search || '') + '%'}
+              OR phone ILIKE ${'%' + (search || '') + '%'})
       ORDER  BY created_at DESC
       LIMIT  ${parseInt(limit)} OFFSET ${offset}
     `;
-    const [{ count }] = await sql`SELECT COUNT(*) FROM members WHERE tenant_id = ${tid}`;
+    const [{ count }] = await sql`
+      SELECT COUNT(*) FROM members WHERE tenant_id = ${req.tenantId!}
+    `;
     res.json({ data: rows, total: parseInt(count), page: parseInt(page), limit: parseInt(limit) });
-  } catch (err: any) { logger.error('members list', { error: err.message }); res.status(500).json({ error: 'Failed' }); }
+  } catch (err: any) {
+    logger.error('members list', { error: err.message });
+    res.status(500).json({ error: 'Failed to fetch members' });
+  }
 });
 
 // POST /erp/members
 router.post('/', async (req: Request, res: Response): Promise<void> => {
-  const tid = req.tenantId!;
-  const { name, email, phone, dob, gender, address, guardian, member_no, photo_url, metadata } = req.body;
+  const { name, email, phone, dob, gender, address, guardian, member_no, photo_url, metadata } =
+    req.body;
   if (!name) { res.status(400).json({ error: 'name is required' }); return; }
   try {
     const [row] = await sql`
-      INSERT INTO members (tenant_id, name, email, phone, dob, gender, address, guardian, member_no, photo_url, metadata)
-      VALUES (${tid}, ${name}, ${email||null}, ${phone||null}, ${dob||null}, ${gender||null},
-              ${JSON.stringify(address||{})}::jsonb, ${JSON.stringify(guardian||{})}::jsonb,
-              ${member_no||null}, ${photo_url||null}, ${JSON.stringify(metadata||{})}::jsonb)
+      INSERT INTO members
+        (tenant_id, name, email, phone, dob, gender, address, guardian, member_no, photo_url, metadata)
+      VALUES
+        (${req.tenantId!}, ${name}, ${email || null}, ${phone || null}, ${dob || null},
+         ${gender || null}, ${JSON.stringify(address || {})}::jsonb,
+         ${JSON.stringify(guardian || {})}::jsonb, ${member_no || null},
+         ${photo_url || null}, ${JSON.stringify(metadata || {})}::jsonb)
       RETURNING *
     `;
     res.status(201).json(row);
@@ -43,27 +53,30 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
 
 // GET /erp/members/:id
 router.get('/:id', async (req: Request, res: Response): Promise<void> => {
-  const [row] = await sql`SELECT * FROM members WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId!}`;
+  const [row] = await sql`
+    SELECT * FROM members WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId!}
+  `;
   if (!row) { res.status(404).json({ error: 'Member not found' }); return; }
   res.json(row);
 });
 
 // PATCH /erp/members/:id
 router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
-  const { name, email, phone, dob, gender, address, guardian, status, photo_url, metadata } = req.body;
+  const { name, email, phone, dob, gender, address, guardian, status, photo_url, metadata } =
+    req.body;
   try {
     const [row] = await sql`
       UPDATE members SET
-        name       = COALESCE(${name||null}, name),
-        email      = COALESCE(${email||null}, email),
-        phone      = COALESCE(${phone||null}, phone),
-        dob        = COALESCE(${dob||null}::date, dob),
-        gender     = COALESCE(${gender||null}, gender),
-        address    = COALESCE(${address ? JSON.stringify(address) : null}::jsonb, address),
-        guardian   = COALESCE(${guardian ? JSON.stringify(guardian) : null}::jsonb, guardian),
-        status     = COALESCE(${status||null}, status),
-        photo_url  = COALESCE(${photo_url||null}, photo_url),
-        metadata   = COALESCE(${metadata ? JSON.stringify(metadata) : null}::jsonb, metadata),
+        name      = COALESCE(${name      || null}, name),
+        email     = COALESCE(${email     || null}, email),
+        phone     = COALESCE(${phone     || null}, phone),
+        dob       = COALESCE(${dob       || null}::date, dob),
+        gender    = COALESCE(${gender    || null}, gender),
+        address   = COALESCE(${address  ? JSON.stringify(address)  : null}::jsonb, address),
+        guardian  = COALESCE(${guardian ? JSON.stringify(guardian) : null}::jsonb, guardian),
+        status    = COALESCE(${status    || null}, status),
+        photo_url = COALESCE(${photo_url || null}, photo_url),
+        metadata  = COALESCE(${metadata ? JSON.stringify(metadata) : null}::jsonb, metadata),
         updated_at = NOW()
       WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId!}
       RETURNING *
@@ -110,7 +123,9 @@ router.post('/:id/enroll', async (req: Request, res: Response): Promise<void> =>
 // GET /erp/members/:id/payments
 router.get('/:id/payments', async (req: Request, res: Response): Promise<void> => {
   const rows = await sql`
-    SELECT * FROM payments WHERE member_id = ${req.params.id} AND tenant_id = ${req.tenantId!} ORDER BY paid_on DESC
+    SELECT * FROM payments
+    WHERE member_id = ${req.params.id} AND tenant_id = ${req.tenantId!}
+    ORDER BY paid_on DESC
   `;
   res.json(rows);
 });
