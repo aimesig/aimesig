@@ -90,3 +90,31 @@ src/
 │   └── proxy.ts     # http-proxy-middleware factory
 └── index.ts         # Express app + server bootstrap
 ```
+
+
+Let me design a comprehensive ERP API structure for you.
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation-duration: 0.25s;
+    animation-timing-function: cubic-bezier(0.19, 1, 0.22, 1);
+  }
+VvisualizeVvisualize show_widgetHere's the complete breakdown of every domain:
+Multi-tenancy model — each registered client (school, dance studio, yoga center, institute) is a tenant. Every API call scopes data to that tenant automatically via the JWT. Different admins get different roles (tenant_admin, staff, finance_manager, etc.) and only see their own data.
+The 12 domains and what they cover:
+/erp/auth — login, logout, token refresh, password reset for tenant users
+/erp/tenants — register a new client org, manage their users and roles, upgrade plans
+/erp/members — students, clients, dancers, yoga students — enroll them in courses, track their payments and docs
+/erp/staff — teachers, instructors, employees — schedules, leave, payslips
+/erp/courses — classes, programs, batches — publish them, manage who's in them
+/erp/schedule — timetable slots, rooms, conflict detection, bulk timetable generation
+/erp/attendance — mark single or bulk, session-level reports, member/staff history
+/erp/finance — fee plans, invoices, payments, refunds, revenue reports
+/erp/payroll — salary structures, run payroll, approve payslips
+/erp/inventory — equipment, supplies, assign/return assets, low-stock alerts
+/erp/communications — send SMS/email, templates, bulk campaigns
+/erp/admissions — lead pipeline, enquiries, convert to members, application status
+/erp/certificates — issue and verify completion certificates, bulk issue, PDF download
+/erp/reports — cross-domain analytics, export to CSV/PDF/XLSX
+/erp/settings — per-tenant branding, timezone, currency, third-party integrations
+Want me to start building any of these services, or generate the full OpenAPI/Swagger spec?
